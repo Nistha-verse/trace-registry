@@ -1,0 +1,14 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.surfpool
+
+# Archived scaffold copies are not project source.
+trace-registry-src/
+trace-registry-src.zip
+trace-registry-update/
+trace-registry-update.zip
