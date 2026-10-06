@@ -20,6 +20,8 @@ declare_id!("H2xqJNtm8nwHu6UxY41NhmP9tC42q6nwQM8PY3PJpt6w");
 
 /// UpgradeableLoaderState::Program tag.
 const PROGRAM_TAG: u32 = 2;
+/// 4 (tag) + 32 (ProgramData address).
+const PROGRAM_METADATA_SIZE: usize = 36;
 /// UpgradeableLoaderState::ProgramData tag.
 const PROGRAMDATA_TAG: u32 = 3;
 /// 4 (tag) + 8 (slot) + 1 (option flag) + 32 (authority).
@@ -47,10 +49,7 @@ pub mod trace_registry {
         // 2. Its Program account must point at exactly the ProgramData we were given.
         {
             let data = target.try_borrow_data()?;
-            require!(data.len() >= 36, TraceError::MalformedProgramAccount);
-            let tag = u32::from_le_bytes(data[0..4].try_into().unwrap());
-            require!(tag == PROGRAM_TAG, TraceError::MalformedProgramAccount);
-            let linked = Pubkey::new_from_array(data[4..36].try_into().unwrap());
+            let linked = parse_program_account(&data)?;
             require_keys_eq!(linked, program_data.key(), TraceError::ProgramDataMismatch);
         }
         require_keys_eq!(
@@ -234,6 +233,16 @@ pub struct ProgramDataHeader {
     pub authority: Option<Pubkey>,
 }
 
+pub fn parse_program_account(data: &[u8]) -> Result<Pubkey> {
+    require!(
+        data.len() >= PROGRAM_METADATA_SIZE,
+        TraceError::MalformedProgramAccount
+    );
+    let tag = u32::from_le_bytes(data[0..4].try_into().unwrap());
+    require!(tag == PROGRAM_TAG, TraceError::MalformedProgramAccount);
+    Ok(Pubkey::new_from_array(data[4..36].try_into().unwrap()))
+}
+
 pub fn parse_programdata_header(data: &[u8]) -> Result<ProgramDataHeader> {
     require!(
         data.len() >= PROGRAMDATA_METADATA_SIZE,
@@ -296,6 +305,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_program_account_link() {
+        let linked = Pubkey::new_unique();
+        let mut data = vec![0u8; PROGRAM_METADATA_SIZE];
+        data[0..4].copy_from_slice(&PROGRAM_TAG.to_le_bytes());
+        data[4..36].copy_from_slice(linked.as_ref());
+        assert_eq!(parse_program_account(&data).unwrap(), linked);
+    }
+
+    #[test]
     fn parses_header_with_authority() {
         let a = Pubkey::new_unique();
         let h = parse_programdata_header(&header(1, Some(a), 3)).unwrap();
@@ -307,6 +325,15 @@ mod tests {
         assert!(parse_programdata_header(&header(0, None, 2)).is_err());
         assert!(parse_programdata_header(&header(7, None, 3)).is_err());
         assert!(parse_programdata_header(&[0u8; 10]).is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_program_accounts() {
+        assert!(parse_program_account(&[0u8; 35]).is_err());
+
+        let mut data = vec![0u8; PROGRAM_METADATA_SIZE];
+        data[0..4].copy_from_slice(&99u32.to_le_bytes());
+        assert!(parse_program_account(&data).is_err());
     }
 
     #[test]

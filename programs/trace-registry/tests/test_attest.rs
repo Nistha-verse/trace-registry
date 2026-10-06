@@ -330,6 +330,46 @@ fn rejects_program_data_with_the_wrong_owner() {
 }
 
 #[test]
+fn rejects_a_truncated_program_data_header() {
+    let mut env = setup(None);
+    env.svm
+        .set_account(
+            env.program_data,
+            account(vec![0u8; 44], bpf_loader_upgradeable::ID, false),
+        )
+        .unwrap();
+    expect_err(&attest(&mut env), "MalformedProgramData");
+}
+
+#[test]
+fn rejects_a_program_data_with_the_wrong_loader_tag() {
+    let mut env = setup(None);
+    let mut data = programdata_bytes(None, 1);
+    data[0..4].copy_from_slice(&88u32.to_le_bytes());
+    env.svm
+        .set_account(
+            env.program_data,
+            account(data, bpf_loader_upgradeable::ID, false),
+        )
+        .unwrap();
+    expect_err(&attest(&mut env), "MalformedProgramData");
+}
+
+#[test]
+fn rejects_a_program_data_with_an_invalid_authority_flag() {
+    let mut env = setup(None);
+    let mut data = programdata_bytes(None, 1);
+    data[12] = 2;
+    env.svm
+        .set_account(
+            env.program_data,
+            account(data, bpf_loader_upgradeable::ID, false),
+        )
+        .unwrap();
+    expect_err(&attest(&mut env), "MalformedProgramData");
+}
+
+#[test]
 fn assert_safe_gates_on_risk() {
     let mut env = setup(Some(Keypair::new().pubkey()));
     expect_ok(&attest(&mut env));
