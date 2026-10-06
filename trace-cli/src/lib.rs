@@ -82,6 +82,41 @@ impl TraceClient {
             .0
     }
 
+    pub fn safe_registry_pda(&self) -> Pubkey {
+        Pubkey::derive_program_address(&[b"safe-registry"], &self.trace_program)
+            .expect("Trace PDA derivation failed")
+            .0
+    }
+
+    pub fn registry(&self) -> Result<RegistryView, ClientError> {
+        let registry_address = self.safe_registry_pda();
+        let authority = self
+            .get_account(&registry_address)?
+            .map(|data| decode_safe_registry(&data))
+            .transpose()?;
+        let accounts: RpcResponse<Vec<RpcProgramAccount>> = self.rpc(
+            "getProgramAccounts",
+            json!([
+                self.trace_program.to_string(),
+                {"encoding": "base64", "filters": [{"dataSize": 59}]}
+            ]),
+        )?;
+        let records = accounts
+            .result
+            .iter()
+            .filter_map(|account| {
+                let encoded = account.data.first()?.as_str()?;
+                let data = BASE64.decode(encoded).ok()?;
+                decode_safe_program(&data, &account.pubkey).ok()
+            })
+            .collect();
+        Ok(RegistryView {
+            registry_address: registry_address.to_string(),
+            authority,
+            records,
+        })
+    }
+
     pub fn verify(&self, target: &str) -> Result<ProgramReport, ClientError> {
         let target = parse_pubkey(target)?;
         let attestation_address = self.attestation_pda(&target);
@@ -230,6 +265,23 @@ pub struct DependencyView {
 }
 
 #[derive(Debug, Serialize)]
+pub struct RegistryView {
+    pub registry_address: String,
+    pub authority: Option<String>,
+    pub records: Vec<RegistryRecord>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RegistryRecord {
+    pub record_address: String,
+    pub program_id: String,
+    pub max_risk: String,
+    pub registered_at: i64,
+    pub attested_slot: u64,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
 pub struct HistoryRecord {
     pub signature: String,
     pub slot: u64,
@@ -267,6 +319,12 @@ struct RpcResponse<T> {
 
 #[derive(Debug, Deserialize)]
 struct RpcAccount {
+    data: Vec<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcProgramAccount {
+    pubkey: String,
     data: Vec<Value>,
 }
 
@@ -426,6 +484,29 @@ fn decode_dependency_manifest(data: &[u8]) -> Result<DependencyManifestView, Cli
         target_program: target_program.to_string(),
         dependencies,
         last_observed_slot: read_u64(data, &mut offset)?,
+    })
+}
+
+fn decode_safe_registry(data: &[u8]) -> Result<String, ClientError> {
+    let mut offset = 8;
+    Ok(read_pubkey(data, &mut offset)?.to_string())
+}
+
+fn decode_safe_program(data: &[u8], address: &str) -> Result<RegistryRecord, ClientError> {
+    let mut offset = 8;
+    let program_id = read_pubkey(data, &mut offset)?;
+    let max_risk = read_risk(data, &mut offset)?;
+    let registered_at = read_i64(data, &mut offset)?;
+    let attested_slot = read_u64(data, &mut offset)?;
+    let enabled = read_u8(data, &mut offset)? != 0;
+    let _bump = read_u8(data, &mut offset)?;
+    Ok(RegistryRecord {
+        record_address: address.into(),
+        program_id: program_id.to_string(),
+        max_risk,
+        registered_at,
+        attested_slot,
+        enabled,
     })
 }
 

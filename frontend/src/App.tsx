@@ -3,6 +3,7 @@ import { DependenciesPage } from './pages/DependenciesPage'
 import { HomePage } from './pages/HomePage'
 import { HistoryPage } from './pages/HistoryPage'
 import { ProgramPage } from './pages/ProgramPage'
+import { RegistryPage } from './pages/RegistryPage'
 import { useEffect, useState } from 'react'
 
 function useHash() {
@@ -26,7 +27,8 @@ export default function App() {
       {programAddress && detailMatch?.[2] === 'dependencies' ? <DependenciesPage address={programAddress} /> : null}
       {programAddress && detailMatch?.[2] === 'history' ? <HistoryPage address={programAddress} /> : null}
       {programAddress && !detailMatch ? <ProgramPage address={programAddress} /> : null}
-      {!programAddress ? <HomePage /> : null}
+      {hash === '#/registry' ? <RegistryPage /> : null}
+      {!programAddress && hash !== '#/registry' ? <HomePage /> : null}
     </AppShell>
   )
 }

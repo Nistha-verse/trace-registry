@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowUpRight, CircleAlert, GitBranch, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { fetchProgramReport } from '../lib/api'
+import { useNetwork } from '../lib/network'
 import type { DependencyView, ProgramReport } from '../lib/types'
 
 type Props = { address: string }
@@ -24,11 +25,12 @@ export function DependenciesPage({ address }: Props) {
   const [report, setReport] = useState<ProgramReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const network = useNetwork()
 
   useEffect(() => {
     setLoading(true)
-    fetchProgramReport(address).then(setReport).catch((cause) => setError(cause instanceof Error ? cause.message : 'Dependency read failed')).finally(() => setLoading(false))
-  }, [address])
+    fetchProgramReport(address, network).then(setReport).catch((cause) => setError(cause instanceof Error ? cause.message : 'Dependency read failed')).finally(() => setLoading(false))
+  }, [address, network])
 
   if (loading) return <GraphState icon={<LoaderCircle className="spin" size={30} />} label="READING DEPENDENCY MANIFEST" />
   if (error) return <GraphState icon={<CircleAlert size={30} />} label="DEPENDENCY READ FAILED" message={error} />

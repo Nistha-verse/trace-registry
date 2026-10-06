@@ -1,6 +1,7 @@
 import { Activity, ChevronDown, Menu, Search, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
 import { TraceLogo } from './TraceLogo'
+import { NetworkSelector } from './NetworkSelector'
 
 type AppShellProps = {
   children: React.ReactNode
@@ -30,11 +31,7 @@ export function AppShell({ children }: AppShellProps) {
           </button>
         </nav>
         <div className="topbar__actions">
-          <div className="network-pill" title="Read-only RPC connection">
-            <span className="status-dot" />
-            <span>Devnet</span>
-            <ChevronDown size={14} />
-          </div>
+          <NetworkSelector />
           <button className="icon-button" type="button" aria-label="Search">
             <Search size={18} />
           </button>

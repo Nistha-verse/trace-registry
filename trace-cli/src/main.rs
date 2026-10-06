@@ -96,6 +96,14 @@ fn serve(client: TraceClient, bind: String) -> Result<(), ClientError> {
                 Ok(report) => ("200 OK", report),
                 Err(error) => ("400 Bad Request", json!({"error": error.to_string()})),
             }
+        } else if path == "/v1/registry" {
+            match client.registry() {
+                Ok(registry) => ("200 OK", serde_json::to_value(registry)?),
+                Err(error) => (
+                    "503 Service Unavailable",
+                    json!({"error": error.to_string()}),
+                ),
+            }
         } else {
             ("404 Not Found", json!({"error": "not found"}))
         };

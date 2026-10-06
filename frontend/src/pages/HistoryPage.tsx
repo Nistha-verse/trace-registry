@@ -1,6 +1,7 @@
 import { Activity, ArrowLeft, ArrowUpRight, CircleAlert, Clock3, GitBranch, LoaderCircle, ShieldCheck, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { fetchProgramHistory } from '../lib/api'
+import { useNetwork } from '../lib/network'
 import type { HistoryRecord } from '../lib/types'
 
 type Props = { address: string }
@@ -26,11 +27,12 @@ export function HistoryPage({ address }: Props) {
   const [records, setRecords] = useState<HistoryRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const network = useNetwork()
 
   useEffect(() => {
     setLoading(true)
-    fetchProgramHistory(address).then(setRecords).catch((cause) => setError(cause instanceof Error ? cause.message : 'History read failed')).finally(() => setLoading(false))
-  }, [address])
+    fetchProgramHistory(address, network).then(setRecords).catch((cause) => setError(cause instanceof Error ? cause.message : 'History read failed')).finally(() => setLoading(false))
+  }, [address, network])
 
   return (
     <div className="inspection-page">

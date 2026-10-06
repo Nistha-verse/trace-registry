@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowLeft, Check, Copy, ExternalLink, Fingerprint, LoaderCircle, RefreshCw, Shield, TriangleAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { fetchProgramReport } from '../lib/api'
+import { useNetwork } from '../lib/network'
 import type { AttestationView, ProgramReport } from '../lib/types'
 
 type ProgramPageProps = { address: string }
@@ -42,12 +43,13 @@ export function ProgramPage({ address }: ProgramPageProps) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const network = useNetwork()
 
   async function load() {
     setLoading(true)
     setError(null)
     try {
-      setReport(await fetchProgramReport(address))
+      setReport(await fetchProgramReport(address, network))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Trace could not read this program')
     } finally {
@@ -55,7 +57,7 @@ export function ProgramPage({ address }: ProgramPageProps) {
     }
   }
 
-  useEffect(() => { void load() }, [address])
+  useEffect(() => { void load() }, [address, network])
 
   async function copyAddress() {
     await navigator.clipboard?.writeText(address)
