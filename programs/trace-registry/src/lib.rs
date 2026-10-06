@@ -29,6 +29,7 @@ const PROGRAMDATA_TAG: u32 = 3;
 /// 4 (tag) + 8 (slot) + 1 (option flag) + 32 (authority).
 const PROGRAMDATA_METADATA_SIZE: usize = 45;
 const LOADER_V4_METADATA_SIZE: usize = 48;
+const MAX_DEPENDENCIES: usize = 16;
 
 #[program]
 pub mod trace_registry {
@@ -200,6 +201,33 @@ pub mod trace_registry {
         );
         Ok(())
     }
+
+    pub fn record_cpi_dependency(
+        ctx: Context<RecordCpiDependency>,
+        max_age_slots: u64,
+        max_risk: RiskClass,
+    ) -> Result<()> {
+        super::record_cpi_dependency_handler(ctx, max_age_slots, max_risk)
+    }
+
+    pub fn assert_dependencies_safe(
+        ctx: Context<AssertDependenciesSafe>,
+        max_age_slots: u64,
+        max_risk: RiskClass,
+    ) -> Result<()> {
+        let current_slot = Clock::get()?.slot;
+        for dependency in &ctx.accounts.manifest.dependencies {
+            require!(
+                current_slot.saturating_sub(dependency.attested_slot) <= max_age_slots,
+                TraceError::AttestationStale
+            );
+            require!(
+                dependency.risk.severity() <= max_risk.severity(),
+                TraceError::RiskTooHigh
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -300,6 +328,14 @@ pub struct AuthorityChanged {
     pub slot: u64,
 }
 
+#[event]
+pub struct DependencyObserved {
+    pub parent_program: Pubkey,
+    pub dependency_program: Pubkey,
+    pub risk: RiskClass,
+    pub slot: u64,
+}
+
 #[error_code]
 pub enum TraceError {
     #[msg("Target account is not an executable program")]
@@ -332,6 +368,16 @@ pub enum TraceError {
     InvalidMultisigThreshold,
     #[msg("Multisig members must be strictly sorted and unique")]
     InvalidMultisigMembers,
+    #[msg("The CPI caller is not the declared parent program")]
+    CpiCallerMismatch,
+    #[msg("The dependency account is not executable")]
+    DependencyNotExecutable,
+    #[msg("The dependency attestation targets a different program")]
+    DependencyAttestationTargetMismatch,
+    #[msg("The dependency manifest belongs to a different parent")]
+    DependencyManifestTargetMismatch,
+    #[msg("The dependency manifest is full")]
+    DependencyManifestFull,
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +514,44 @@ pub struct AssertKnownSafe<'info> {
     pub safe_program: Account<'info, SafeProgram>,
 }
 
+#[derive(Accounts)]
+pub struct RecordCpiDependency<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: executable status and caller identity are checked in the handler.
+    pub parent_program: UncheckedAccount<'info>,
+    /// CHECK: executable status is checked in the handler.
+    pub dependency_program: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"attestation", dependency_program.key().as_ref()],
+        bump = dependency_attestation.bump
+    )]
+    pub dependency_attestation: Account<'info, Attestation>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = 8 + DependencyManifest::INIT_SPACE,
+        seeds = [b"dependencies", parent_program.key().as_ref()],
+        bump
+    )]
+    pub manifest: Account<'info, DependencyManifest>,
+    /// CHECK: must be the instructions sysvar.
+    #[account(address = solana_instructions_sysvar::ID)]
+    pub instructions: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AssertDependenciesSafe<'info> {
+    /// CHECK: only its address is used to derive the manifest PDA.
+    pub parent_program: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"dependencies", parent_program.key().as_ref()],
+        bump = manifest.bump
+    )]
+    pub manifest: Account<'info, DependencyManifest>,
+}
+
 pub fn initialize_multisig_handler(
     ctx: Context<InitializeMultisig>,
     id: Pubkey,
@@ -551,6 +635,126 @@ pub struct SafeProgram {
     pub attested_slot: u64,
     pub enabled: bool,
     pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct DependencyManifest {
+    pub target_program: Pubkey,
+    #[max_len(16)]
+    pub dependencies: Vec<DependencyEntry>,
+    pub last_observed_slot: u64,
+    pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
+pub struct DependencyEntry {
+    pub program_id: Pubkey,
+    pub risk: RiskClass,
+    pub attested_slot: u64,
+    pub first_observed_slot: u64,
+    pub last_observed_slot: u64,
+}
+
+pub fn record_cpi_dependency_handler(
+    ctx: Context<RecordCpiDependency>,
+    max_age_slots: u64,
+    max_risk: RiskClass,
+) -> Result<()> {
+    require!(
+        ctx.accounts.parent_program.executable,
+        TraceError::TargetNotExecutable
+    );
+    require!(
+        ctx.accounts.dependency_program.executable,
+        TraceError::DependencyNotExecutable
+    );
+
+    let current_index = solana_instructions_sysvar::load_current_index_checked(
+        &ctx.accounts.instructions.to_account_info(),
+    )?;
+    let caller = solana_instructions_sysvar::load_instruction_at_checked(
+        usize::from(current_index),
+        &ctx.accounts.instructions.to_account_info(),
+    )?;
+    require_keys_eq!(
+        caller.program_id,
+        ctx.accounts.parent_program.key(),
+        TraceError::CpiCallerMismatch
+    );
+
+    let current_slot = Clock::get()?.slot;
+    let attestation = &ctx.accounts.dependency_attestation;
+    require_keys_eq!(
+        attestation.target_program,
+        ctx.accounts.dependency_program.key(),
+        TraceError::DependencyAttestationTargetMismatch
+    );
+    require!(
+        current_slot.saturating_sub(attestation.attested_slot) <= max_age_slots,
+        TraceError::AttestationStale
+    );
+    require!(
+        attestation.risk.severity() <= max_risk.severity(),
+        TraceError::RiskTooHigh
+    );
+
+    let manifest = &mut ctx.accounts.manifest;
+    if manifest.target_program == Pubkey::default() {
+        manifest.target_program = ctx.accounts.parent_program.key();
+    }
+    require_keys_eq!(
+        manifest.target_program,
+        ctx.accounts.parent_program.key(),
+        TraceError::DependencyManifestTargetMismatch
+    );
+    observe_dependency(
+        &mut manifest.dependencies,
+        ctx.accounts.dependency_program.key(),
+        attestation.risk,
+        attestation.attested_slot,
+        current_slot,
+    )?;
+    manifest.last_observed_slot = current_slot;
+    manifest.bump = ctx.bumps.manifest;
+    emit!(DependencyObserved {
+        parent_program: ctx.accounts.parent_program.key(),
+        dependency_program: ctx.accounts.dependency_program.key(),
+        risk: attestation.risk,
+        slot: current_slot,
+    });
+    Ok(())
+}
+
+pub fn observe_dependency(
+    dependencies: &mut Vec<DependencyEntry>,
+    program_id: Pubkey,
+    risk: RiskClass,
+    attested_slot: u64,
+    observed_slot: u64,
+) -> Result<()> {
+    if let Some(existing) = dependencies
+        .iter_mut()
+        .find(|dependency| dependency.program_id == program_id)
+    {
+        existing.risk = risk;
+        existing.attested_slot = attested_slot;
+        existing.last_observed_slot = observed_slot;
+        return Ok(());
+    }
+
+    require!(
+        dependencies.len() < MAX_DEPENDENCIES,
+        TraceError::DependencyManifestFull
+    );
+    dependencies.push(DependencyEntry {
+        program_id,
+        risk,
+        attested_slot,
+        first_observed_slot: observed_slot,
+        last_observed_slot: observed_slot,
+    });
+    Ok(())
 }
 
 pub fn multisig_authority(config: &Pubkey) -> Pubkey {
@@ -727,6 +931,19 @@ mod tests {
             classify_attestation(Some(Pubkey::new_unique()), Some(&config), |_| false);
         assert_eq!(risk, RiskClass::ProgramControlled);
         assert!(matched.is_none());
+    }
+
+    #[test]
+    fn dependency_observations_are_deduplicated() {
+        let dependency = Pubkey::new_unique();
+        let mut entries = Vec::new();
+        observe_dependency(&mut entries, dependency, RiskClass::Immutable, 10, 20).unwrap();
+        observe_dependency(&mut entries, dependency, RiskClass::SingleKey, 30, 40).unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].risk, RiskClass::SingleKey);
+        assert_eq!(entries[0].first_observed_slot, 20);
+        assert_eq!(entries[0].last_observed_slot, 40);
     }
 
     #[test]

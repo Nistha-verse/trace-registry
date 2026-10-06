@@ -160,6 +160,10 @@ fn safe_program_pda(target: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[b"safe-program", target.as_ref()], &trace_registry::id()).0
 }
 
+fn dependency_manifest_pda(parent: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"dependencies", parent.as_ref()], &trace_registry::id()).0
+}
+
 fn initialize_multisig_ix(
     payer: &Pubkey,
     id: Pubkey,
@@ -234,6 +238,53 @@ fn assert_known_safe_ix(target: &Pubkey, max_age_slots: u64, max_risk: RiskClass
             target_program: *target,
             attestation: attestation_pda(target),
             safe_program: safe_program_pda(target),
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn record_cpi_dependency_ix(
+    payer: &Pubkey,
+    parent: &Pubkey,
+    dependency: &Pubkey,
+    max_age_slots: u64,
+    max_risk: RiskClass,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        trace_registry::id(),
+        &trace_registry::instruction::RecordCpiDependency {
+            max_age_slots,
+            max_risk,
+        }
+        .data(),
+        trace_registry::accounts::RecordCpiDependency {
+            payer: *payer,
+            parent_program: *parent,
+            dependency_program: *dependency,
+            dependency_attestation: attestation_pda(dependency),
+            manifest: dependency_manifest_pda(parent),
+            instructions: solana_instructions_sysvar::ID,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn assert_dependencies_safe_ix(
+    parent: &Pubkey,
+    max_age_slots: u64,
+    max_risk: RiskClass,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        trace_registry::id(),
+        &trace_registry::instruction::AssertDependenciesSafe {
+            max_age_slots,
+            max_risk,
+        }
+        .data(),
+        trace_registry::accounts::AssertDependenciesSafe {
+            parent_program: *parent,
+            manifest: dependency_manifest_pda(parent),
         }
         .to_account_metas(None),
     )
@@ -399,6 +450,34 @@ fn registry_rejects_a_riskier_program() {
         ),
         "RiskTooHigh",
     );
+}
+
+#[test]
+fn runtime_cpi_observation_records_and_gates_a_dependency() {
+    let mut env = setup(None);
+    expect_ok(&attest(&mut env));
+    let payer = env.payer.pubkey();
+    let parent = trace_registry::id();
+    let dependency = env.target;
+
+    expect_ok(&send(
+        &mut env,
+        record_cpi_dependency_ix(&payer, &parent, &dependency, 0, RiskClass::Immutable),
+    ));
+    expect_ok(&send(
+        &mut env,
+        assert_dependencies_safe_ix(&parent, 0, RiskClass::Immutable),
+    ));
+
+    let account = env
+        .svm
+        .get_account(&dependency_manifest_pda(&parent))
+        .expect("dependency manifest exists");
+    let mut data: &[u8] = &account.data;
+    let manifest = trace_registry::DependencyManifest::try_deserialize(&mut data).unwrap();
+    assert_eq!(manifest.target_program, parent);
+    assert_eq!(manifest.dependencies.len(), 1);
+    assert_eq!(manifest.dependencies[0].program_id, dependency);
 }
 
 #[test]
