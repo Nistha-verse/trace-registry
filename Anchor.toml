@@ -1,0 +1,19 @@
+skip_local_validator = true
+
+[toolchain]
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+trace_registry = "H2xqJNtm8nwHu6UxY41NhmP9tC42q6nwQM8PY3PJpt6w"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "anchor build --arch v2 && cargo test"
+
+[hooks]
