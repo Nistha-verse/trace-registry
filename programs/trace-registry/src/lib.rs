@@ -6,10 +6,11 @@
 //! chain's current truth.
 //!
 //! What can be proven from the chain alone:
-//!   * Immutable          upgrade authority is None
-//!   * SingleKey          authority is an ordinary ed25519 keypair address
-//!   * ProgramControlled  authority is a PDA: no private key exists, so only an
-//!                        on-chain program (multisig, governance, ...) can sign
+//! - Immutable: upgrade authority is None.
+//! - SingleKey: authority is an ordinary ed25519 keypair address.
+//! - ProgramControlled: authority is a PDA; no private key exists, so only an
+//!   on-chain program (multisig, governance, ...) can sign.
+//!
 //! What is NOT proven here: which program controls a PDA authority, or its
 //! threshold/timelock. Those stay off-chain and are labelled as such.
 
@@ -127,9 +128,9 @@ pub struct Attest<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     /// CHECK: validated by hand in `attest` (executable, loader-owned, ProgramData link).
-    pub target_program: AccountInfo<'info>,
+    pub target_program: UncheckedAccount<'info>,
     /// CHECK: validated by hand in `attest` (must equal the address the target links to).
-    pub program_data: AccountInfo<'info>,
+    pub program_data: UncheckedAccount<'info>,
     #[account(
         init_if_needed,
         payer = payer,
@@ -144,7 +145,7 @@ pub struct Attest<'info> {
 #[derive(Accounts)]
 pub struct AssertSafe<'info> {
     /// CHECK: only its address is used, to derive the attestation PDA.
-    pub target_program: AccountInfo<'info>,
+    pub target_program: UncheckedAccount<'info>,
     #[account(
         seeds = [b"attestation", target_program.key().as_ref()],
         bump = attestation.bump
@@ -345,8 +346,8 @@ mod tests {
             // Known on-curve point: the ed25519 base point compressed encoding.
             let mut b = [0u8; 32];
             b[0] = 0x58;
-            for i in 1..31 {
-                b[i] = 0x66;
+            for byte in b.iter_mut().take(31).skip(1) {
+                *byte = 0x66;
             }
             b[31] = 0x66;
             Pubkey::new_from_array(b)

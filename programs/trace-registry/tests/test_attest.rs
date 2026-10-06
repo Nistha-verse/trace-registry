@@ -141,6 +141,7 @@ fn assert_safe_ix(target: &Pubkey, max_age_slots: u64, max_risk: RiskClass) -> I
     )
 }
 
+#[allow(clippy::result_large_err)]
 fn send(env: &mut Env, ix: Instruction) -> TransactionResult {
     env.svm.expire_blockhash();
     let blockhash = env.svm.latest_blockhash();
@@ -163,6 +164,7 @@ fn event_count(res: &TransactionResult) -> usize {
         .count()
 }
 
+#[allow(clippy::result_large_err)]
 fn attest(env: &mut Env) -> TransactionResult {
     let ix = attest_ix(&env.payer.pubkey(), &env.target, &env.program_data);
     send(env, ix)
