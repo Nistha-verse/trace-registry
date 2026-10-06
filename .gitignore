@@ -12,3 +12,6 @@ trace-registry-src/
 trace-registry-src.zip
 trace-registry-update/
 trace-registry-update.zip
+
+frontend/node_modules/
+frontend/dist/

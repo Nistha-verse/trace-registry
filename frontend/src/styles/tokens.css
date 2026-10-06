@@ -1,0 +1,23 @@
+:root {
+  --trace-wine-950: #140506;
+  --trace-wine-900: #240708;
+  --trace-wine-800: #4a080b;
+  --trace-wine-700: #6e0a0e;
+  --trace-red: #ef111c;
+  --trace-red-bright: #ff2631;
+  --trace-red-soft: #ff706b;
+  --trace-black: #030303;
+  --trace-ink: #110506;
+  --trace-white: #f6f0e9;
+  --trace-muted: #b68584;
+  --trace-line: rgba(246, 240, 233, 0.17);
+  --trace-line-dark: rgba(17, 5, 6, 0.16);
+  --trace-safe: #dbe8ca;
+  --trace-warning: #ffb36f;
+  --font-display: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --radius-sm: 2px;
+  --radius-md: 5px;
+  --shadow-card: 0 18px 50px rgba(0, 0, 0, 0.22);
+}
