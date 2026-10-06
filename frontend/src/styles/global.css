@@ -14,6 +14,9 @@ body {
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; text-decoration: none; }
+.skip-link { background: var(--trace-red); color: var(--trace-white); font-family: var(--font-mono); font-size: 10px; left: 14px; letter-spacing: .08em; padding: 10px 13px; position: fixed; text-transform: uppercase; top: -60px; z-index: 20; }
+.skip-link:focus { top: 14px; }
+:focus-visible { outline: 2px solid var(--trace-red-bright); outline-offset: 3px; }
 
 .app-shell { min-height: 100vh; overflow: hidden; position: relative; }
 .app-shell__ambient { inset: 0; pointer-events: none; position: absolute; overflow: hidden; }
@@ -61,6 +64,7 @@ h1 em { color: var(--trace-red); font-style: normal; }
 .hero-section__key:hover { background: var(--trace-black); }
 .hero-section__caption { color: var(--trace-muted); font-family: var(--font-mono); font-size: 9px; letter-spacing: .05em; margin-top: 13px; text-transform: uppercase; }
 .hero-section__caption span { color: var(--trace-red); padding: 0 5px; }
+.search-validation { color: var(--trace-red-soft); font-family: var(--font-mono); font-size: 10px; margin-top: 10px; }
 .hero-section__identity { display: flex; justify-content: center; }
 .identity-card { background: var(--trace-red); box-shadow: var(--shadow-card); color: var(--trace-black); max-width: 360px; padding: 17px; position: relative; transform: rotate(3deg); width: 100%; }
 .identity-card::after { border: 1px solid rgba(0,0,0,.4); content: ""; inset: 7px; pointer-events: none; position: absolute; }
@@ -215,6 +219,9 @@ h1 em { color: var(--trace-red); font-style: normal; }
 .registry-risk--multisig { color: var(--trace-warning); }
 .registry-risk--program, .registry-risk--single { color: var(--trace-red-soft); }
 .registry-state { margin-top: 30px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
 .state-panel { align-items: flex-start; background: rgba(3,3,3,.54); border: 1px solid var(--trace-line); display: flex; flex-direction: column; margin: 120px auto; max-width: 650px; min-height: 390px; padding: 35px; position: relative; }
 .state-panel::before { border: 1px solid rgba(239,17,28,.33); content: ""; inset: 12px; pointer-events: none; position: absolute; }
 .state-panel > * { position: relative; }

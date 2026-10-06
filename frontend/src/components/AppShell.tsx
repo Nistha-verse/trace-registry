@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, Menu, Search, ShieldCheck, X } from 'lucide-react'
+import { Activity, Menu, Search, ShieldCheck, X } from 'lucide-react'
 import { useState } from 'react'
 import { TraceLogo } from './TraceLogo'
 import { NetworkSelector } from './NetworkSelector'
@@ -12,6 +12,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <div className="app-shell__ambient" aria-hidden="true">
         <span className="ambient-line ambient-line--one" />
         <span className="ambient-line ambient-line--two" />
@@ -40,7 +41,7 @@ export function AppShell({ children }: AppShellProps) {
           </button>
         </div>
       </header>
-      <main className="page-content">{children}</main>
+      <main className="page-content" id="main-content" tabIndex={-1}>{children}</main>
       <footer className="footer">
         <div className="footer__mark"><ShieldCheck size={15} /> Facts over faith.</div>
         <div className="footer__meta"><Activity size={14} /> On-chain read layer / v0.1</div>

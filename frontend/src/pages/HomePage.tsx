@@ -1,6 +1,7 @@
 import { ArrowUpRight, Check, LockKeyhole, Radar, ScanLine } from 'lucide-react'
 import { FormEvent, useState } from 'react'
 import { TraceLogo } from '../components/TraceLogo'
+import { isSolanaAddress } from '../lib/formatters'
 
 function navigateToProgram(address: string) {
   window.location.hash = `#/program/${encodeURIComponent(address.trim())}`
@@ -14,10 +15,20 @@ const riskCards = [
 
 export function HomePage() {
   const [address, setAddress] = useState('')
+  const [validation, setValidation] = useState('')
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (address.trim()) navigateToProgram(address)
+    if (!address.trim()) {
+      setValidation('Enter a Solana program address.')
+      return
+    }
+    if (!isSolanaAddress(address)) {
+      setValidation('That does not look like a valid base58 Solana address.')
+      return
+    }
+    setValidation('')
+    navigateToProgram(address)
   }
 
   return (
@@ -40,6 +51,7 @@ export function HomePage() {
             />
             <button className="hero-section__key" type="submit">CHECK</button>
           </form>
+          {validation && <div className="search-validation" role="alert">{validation}</div>}
           <div className="hero-section__caption">No wallet required <span>·</span> Read-only <span>·</span> Verifiable on-chain</div>
         </div>
         <div className="hero-section__identity">
