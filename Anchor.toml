@@ -9,6 +9,12 @@ skip-lint = false
 [programs.localnet]
 trace_registry = "H2xqJNtm8nwHu6UxY41NhmP9tC42q6nwQM8PY3PJpt6w"
 
+[programs.devnet]
+trace_registry = "H2xqJNtm8nwHu6UxY41NhmP9tC42q6nwQM8PY3PJpt6w"
+
+[programs.mainnet]
+trace_registry = "H2xqJNtm8nwHu6UxY41NhmP9tC42q6nwQM8PY3PJpt6w"
+
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
