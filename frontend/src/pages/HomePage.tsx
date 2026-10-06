@@ -1,5 +1,10 @@
 import { ArrowUpRight, Check, LockKeyhole, Radar, ScanLine } from 'lucide-react'
+import { FormEvent, useState } from 'react'
 import { TraceLogo } from '../components/TraceLogo'
+
+function navigateToProgram(address: string) {
+  window.location.hash = `#/program/${encodeURIComponent(address.trim())}`
+}
 
 const riskCards = [
   { label: 'Immutable', description: 'No upgrade authority.', icon: LockKeyhole, tone: 'safe' },
@@ -8,6 +13,13 @@ const riskCards = [
 ]
 
 export function HomePage() {
+  const [address, setAddress] = useState('')
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (address.trim()) navigateToProgram(address)
+  }
+
   return (
     <div className="home-page">
       <section className="hero-section">
@@ -18,11 +30,16 @@ export function HomePage() {
             Trace reads the facts behind a program: who can upgrade it, how fresh the evidence is,
             and what it has been observed calling.
           </p>
-          <div className="hero-section__search-placeholder">
+          <form className="hero-section__search-placeholder" onSubmit={submit}>
             <ScanLine size={17} />
-            <span>Paste a program address to inspect its risk</span>
-            <span className="hero-section__key">⌘ K</span>
-          </div>
+            <input
+              aria-label="Solana program address"
+              onChange={(event) => setAddress(event.target.value)}
+              placeholder="Paste a program address to inspect its risk"
+              value={address}
+            />
+            <button className="hero-section__key" type="submit">CHECK</button>
+          </form>
           <div className="hero-section__caption">No wallet required <span>·</span> Read-only <span>·</span> Verifiable on-chain</div>
         </div>
         <div className="hero-section__identity">
