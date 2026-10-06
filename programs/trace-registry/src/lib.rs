@@ -167,6 +167,39 @@ pub mod trace_registry {
     ) -> Result<()> {
         super::initialize_multisig_handler(ctx, id, members, threshold)
     }
+
+    pub fn initialize_safe_registry(ctx: Context<InitializeSafeRegistry>) -> Result<()> {
+        super::initialize_safe_registry_handler(ctx)
+    }
+
+    pub fn register_safe_program(
+        ctx: Context<RegisterSafeProgram>,
+        max_age_slots: u64,
+        max_risk: RiskClass,
+    ) -> Result<()> {
+        super::register_safe_program_handler(ctx, max_age_slots, max_risk)
+    }
+
+    pub fn assert_known_safe(
+        ctx: Context<AssertKnownSafe>,
+        max_age_slots: u64,
+        max_risk: RiskClass,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+        let record = &ctx.accounts.safe_program;
+        let attestation = &ctx.accounts.attestation;
+        require!(record.enabled, TraceError::SafeProgramDisabled);
+        require!(
+            clock.slot.saturating_sub(attestation.attested_slot) <= max_age_slots,
+            TraceError::AttestationStale
+        );
+        require!(
+            attestation.risk.severity() <= record.max_risk.severity()
+                && attestation.risk.severity() <= max_risk.severity(),
+            TraceError::RiskTooHigh
+        );
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -283,6 +316,10 @@ pub enum TraceError {
     ProgramDataRequired,
     #[msg("This loader does not use a ProgramData account")]
     UnexpectedProgramData,
+    #[msg("The attestation does not belong to the requested target")]
+    AttestationTargetMismatch,
+    #[msg("The safe-program record is disabled")]
+    SafeProgramDisabled,
     #[msg("ProgramData header is malformed")]
     MalformedProgramData,
     #[msg("Attestation is older than the allowed age")]
@@ -376,6 +413,61 @@ pub struct InitializeMultisig<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct InitializeSafeRegistry<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + SafeRegistry::INIT_SPACE,
+        seeds = [b"safe-registry"],
+        bump
+    )]
+    pub registry: Account<'info, SafeRegistry>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RegisterSafeProgram<'info> {
+    #[account(mut, has_one = authority)]
+    pub registry: Account<'info, SafeRegistry>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// CHECK: the address is bound to both the attestation and record PDAs.
+    pub target_program: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"attestation", target_program.key().as_ref()],
+        bump = attestation.bump
+    )]
+    pub attestation: Account<'info, Attestation>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + SafeProgram::INIT_SPACE,
+        seeds = [b"safe-program", target_program.key().as_ref()],
+        bump
+    )]
+    pub safe_program: Account<'info, SafeProgram>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AssertKnownSafe<'info> {
+    /// CHECK: only its address is used to derive the records.
+    pub target_program: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"attestation", target_program.key().as_ref()],
+        bump = attestation.bump
+    )]
+    pub attestation: Account<'info, Attestation>,
+    #[account(
+        seeds = [b"safe-program", target_program.key().as_ref()],
+        bump = safe_program.bump
+    )]
+    pub safe_program: Account<'info, SafeProgram>,
+}
+
 pub fn initialize_multisig_handler(
     ctx: Context<InitializeMultisig>,
     id: Pubkey,
@@ -403,6 +495,62 @@ pub fn initialize_multisig_handler(
     config.members = members;
     config.bump = ctx.bumps.config;
     Ok(())
+}
+
+pub fn initialize_safe_registry_handler(ctx: Context<InitializeSafeRegistry>) -> Result<()> {
+    let registry = &mut ctx.accounts.registry;
+    registry.authority = ctx.accounts.payer.key();
+    registry.bump = ctx.bumps.registry;
+    Ok(())
+}
+
+pub fn register_safe_program_handler(
+    ctx: Context<RegisterSafeProgram>,
+    max_age_slots: u64,
+    max_risk: RiskClass,
+) -> Result<()> {
+    let clock = Clock::get()?;
+    let attestation = &ctx.accounts.attestation;
+    require_keys_eq!(
+        attestation.target_program,
+        ctx.accounts.target_program.key(),
+        TraceError::AttestationTargetMismatch
+    );
+    require!(
+        clock.slot.saturating_sub(attestation.attested_slot) <= max_age_slots,
+        TraceError::AttestationStale
+    );
+    require!(
+        attestation.risk.severity() <= max_risk.severity(),
+        TraceError::RiskTooHigh
+    );
+
+    let safe_program = &mut ctx.accounts.safe_program;
+    safe_program.program_id = ctx.accounts.target_program.key();
+    safe_program.max_risk = max_risk;
+    safe_program.registered_at = clock.unix_timestamp;
+    safe_program.attested_slot = attestation.attested_slot;
+    safe_program.enabled = true;
+    safe_program.bump = ctx.bumps.safe_program;
+    Ok(())
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct SafeRegistry {
+    pub authority: Pubkey,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct SafeProgram {
+    pub program_id: Pubkey,
+    pub max_risk: RiskClass,
+    pub registered_at: i64,
+    pub attested_slot: u64,
+    pub enabled: bool,
+    pub bump: u8,
 }
 
 pub fn multisig_authority(config: &Pubkey) -> Pubkey {

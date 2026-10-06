@@ -152,6 +152,14 @@ fn multisig_config_pda(id: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[b"multisig", id.as_ref()], &trace_registry::id()).0
 }
 
+fn safe_registry_pda() -> Pubkey {
+    Pubkey::find_program_address(&[b"safe-registry"], &trace_registry::id()).0
+}
+
+fn safe_program_pda(target: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"safe-program", target.as_ref()], &trace_registry::id()).0
+}
+
 fn initialize_multisig_ix(
     payer: &Pubkey,
     id: Pubkey,
@@ -171,6 +179,61 @@ fn initialize_multisig_ix(
             payer: *payer,
             config,
             system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn initialize_safe_registry_ix(payer: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        trace_registry::id(),
+        &trace_registry::instruction::InitializeSafeRegistry {}.data(),
+        trace_registry::accounts::InitializeSafeRegistry {
+            payer: *payer,
+            registry: safe_registry_pda(),
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn register_safe_program_ix(
+    payer: &Pubkey,
+    target: &Pubkey,
+    max_age_slots: u64,
+    max_risk: RiskClass,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        trace_registry::id(),
+        &trace_registry::instruction::RegisterSafeProgram {
+            max_age_slots,
+            max_risk,
+        }
+        .data(),
+        trace_registry::accounts::RegisterSafeProgram {
+            registry: safe_registry_pda(),
+            authority: *payer,
+            target_program: *target,
+            attestation: attestation_pda(target),
+            safe_program: safe_program_pda(target),
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn assert_known_safe_ix(target: &Pubkey, max_age_slots: u64, max_risk: RiskClass) -> Instruction {
+    Instruction::new_with_bytes(
+        trace_registry::id(),
+        &trace_registry::instruction::AssertKnownSafe {
+            max_age_slots,
+            max_risk,
+        }
+        .data(),
+        trace_registry::accounts::AssertKnownSafe {
+            target_program: *target,
+            attestation: attestation_pda(target),
+            safe_program: safe_program_pda(target),
         }
         .to_account_metas(None),
     )
@@ -301,6 +364,41 @@ fn trace_multisig_authority_is_multisig_protected() {
     assert_eq!(attestation.multisig_config, Some(config));
     assert_eq!(attestation.multisig_threshold, 2);
     assert_eq!(attestation.multisig_member_count, 3);
+}
+
+#[test]
+fn registry_accepts_only_attestations_within_its_policy() {
+    let mut env = setup(None);
+    expect_ok(&attest(&mut env));
+    let payer = env.payer.pubkey();
+    let target = env.target;
+
+    expect_ok(&send(&mut env, initialize_safe_registry_ix(&payer)));
+    expect_ok(&send(
+        &mut env,
+        register_safe_program_ix(&payer, &target, 0, RiskClass::Immutable),
+    ));
+    expect_ok(&send(
+        &mut env,
+        assert_known_safe_ix(&target, 0, RiskClass::Immutable),
+    ));
+}
+
+#[test]
+fn registry_rejects_a_riskier_program() {
+    let mut env = setup(Some(Keypair::new().pubkey()));
+    expect_ok(&attest(&mut env));
+    let payer = env.payer.pubkey();
+    let target = env.target;
+
+    expect_ok(&send(&mut env, initialize_safe_registry_ix(&payer)));
+    expect_err(
+        &send(
+            &mut env,
+            register_safe_program_ix(&payer, &target, 0, RiskClass::Immutable),
+        ),
+        "RiskTooHigh",
+    );
 }
 
 #[test]
