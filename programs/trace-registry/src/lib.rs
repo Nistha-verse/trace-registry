@@ -23,6 +23,7 @@ declare_id!("H2xqJNtm8nwHu6UxY41NhmP9tC42q6nwQM8PY3PJpt6w");
 const PROGRAM_TAG: u32 = 2;
 /// 4 (tag) + 32 (ProgramData address).
 const PROGRAM_METADATA_SIZE: usize = 36;
+const MAX_MULTISIG_MEMBERS: usize = 8;
 /// UpgradeableLoaderState::ProgramData tag.
 const PROGRAMDATA_TAG: u32 = 3;
 /// 4 (tag) + 8 (slot) + 1 (option flag) + 32 (authority).
@@ -64,7 +65,11 @@ pub mod trace_registry {
             let data = program_data.try_borrow_data()?;
             parse_programdata_header(&data)?
         };
-        let risk = classify(header.authority, is_on_curve);
+        let (risk, multisig_config) = classify_attestation(
+            header.authority,
+            ctx.accounts.multisig_config.as_deref(),
+            is_on_curve,
+        );
 
         // 4. Store it, and emit events so history survives overwrites.
         let clock = Clock::get()?;
@@ -77,6 +82,14 @@ pub mod trace_registry {
         att.program_data = program_data.key();
         att.authority = header.authority;
         att.risk = risk;
+        att.multisig_config = multisig_config.as_ref().and(
+            ctx.accounts
+                .multisig_config
+                .as_ref()
+                .map(|account| account.key()),
+        );
+        att.multisig_threshold = multisig_config.map_or(0, |config| config.threshold);
+        att.multisig_member_count = multisig_config.map_or(0, |config| config.member_count);
         att.last_deploy_slot = header.slot;
         att.attested_slot = clock.slot;
         att.attested_at = clock.unix_timestamp;
@@ -96,6 +109,7 @@ pub mod trace_registry {
             target_program: target.key(),
             authority: header.authority,
             risk,
+            multisig_config: att.multisig_config,
             slot: clock.slot,
             refresh_count: att.refresh_count,
         });
@@ -121,6 +135,15 @@ pub mod trace_registry {
         );
         Ok(())
     }
+
+    pub fn initialize_multisig(
+        ctx: Context<InitializeMultisig>,
+        id: Pubkey,
+        members: Vec<Pubkey>,
+        threshold: u8,
+    ) -> Result<()> {
+        super::initialize_multisig_handler(ctx, id, members, threshold)
+    }
 }
 
 #[derive(Accounts)]
@@ -131,6 +154,7 @@ pub struct Attest<'info> {
     pub target_program: UncheckedAccount<'info>,
     /// CHECK: validated by hand in `attest` (must equal the address the target links to).
     pub program_data: UncheckedAccount<'info>,
+    pub multisig_config: Option<Account<'info, MultisigConfig>>,
     #[account(
         init_if_needed,
         payer = payer,
@@ -160,6 +184,9 @@ pub struct Attestation {
     pub program_data: Pubkey,
     pub authority: Option<Pubkey>,
     pub risk: RiskClass,
+    pub multisig_config: Option<Pubkey>,
+    pub multisig_threshold: u8,
+    pub multisig_member_count: u8,
     /// Slot of the target's last deploy/upgrade, from the ProgramData header.
     pub last_deploy_slot: u64,
     pub attested_slot: u64,
@@ -173,6 +200,7 @@ pub struct Attestation {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum RiskClass {
     Immutable,
+    MultisigProtected,
     ProgramControlled,
     SingleKey,
 }
@@ -182,8 +210,9 @@ impl RiskClass {
     pub fn severity(&self) -> u8 {
         match self {
             RiskClass::Immutable => 0,
-            RiskClass::ProgramControlled => 1,
-            RiskClass::SingleKey => 2,
+            RiskClass::MultisigProtected => 1,
+            RiskClass::ProgramControlled => 2,
+            RiskClass::SingleKey => 3,
         }
     }
 }
@@ -193,6 +222,7 @@ pub struct Attested {
     pub target_program: Pubkey,
     pub authority: Option<Pubkey>,
     pub risk: RiskClass,
+    pub multisig_config: Option<Pubkey>,
     pub slot: u64,
     pub refresh_count: u32,
 }
@@ -223,6 +253,12 @@ pub enum TraceError {
     AttestationStale,
     #[msg("Attested risk exceeds the caller's allowed maximum")]
     RiskTooHigh,
+    #[msg("Multisig must have between one and eight members")]
+    InvalidMultisigMemberCount,
+    #[msg("Multisig threshold must be between one and the member count")]
+    InvalidMultisigThreshold,
+    #[msg("Multisig members must be strictly sorted and unique")]
+    InvalidMultisigMembers,
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +268,84 @@ pub enum TraceError {
 pub struct ProgramDataHeader {
     pub slot: u64,
     pub authority: Option<Pubkey>,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct MultisigConfig {
+    pub id: Pubkey,
+    pub authority: Pubkey,
+    pub threshold: u8,
+    pub member_count: u8,
+    #[max_len(8)]
+    pub members: Vec<Pubkey>,
+    pub bump: u8,
+}
+
+#[derive(Accounts)]
+#[instruction(id: Pubkey)]
+pub struct InitializeMultisig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + MultisigConfig::INIT_SPACE,
+        seeds = [b"multisig", id.as_ref()],
+        bump
+    )]
+    pub config: Account<'info, MultisigConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn initialize_multisig_handler(
+    ctx: Context<InitializeMultisig>,
+    id: Pubkey,
+    members: Vec<Pubkey>,
+    threshold: u8,
+) -> Result<()> {
+    require!(
+        !members.is_empty() && members.len() <= MAX_MULTISIG_MEMBERS,
+        TraceError::InvalidMultisigMemberCount
+    );
+    require!(
+        threshold > 0 && usize::from(threshold) <= members.len(),
+        TraceError::InvalidMultisigThreshold
+    );
+    require!(
+        members.windows(2).all(|window| window[0] < window[1]),
+        TraceError::InvalidMultisigMembers
+    );
+
+    let config = &mut ctx.accounts.config;
+    config.id = id;
+    config.authority = multisig_authority(&config.key());
+    config.threshold = threshold;
+    config.member_count = members.len() as u8;
+    config.members = members;
+    config.bump = ctx.bumps.config;
+    Ok(())
+}
+
+pub fn multisig_authority(config: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"multisig-authority", config.as_ref()], &crate::ID).0
+}
+
+pub fn classify_attestation(
+    authority: Option<Pubkey>,
+    config: Option<&MultisigConfig>,
+    on_curve: impl Fn(&Pubkey) -> bool,
+) -> (RiskClass, Option<&MultisigConfig>) {
+    match authority {
+        None => (RiskClass::Immutable, None),
+        Some(authority) if on_curve(&authority) => (RiskClass::SingleKey, None),
+        Some(authority) => match config {
+            Some(config) if config.authority == authority => {
+                (RiskClass::MultisigProtected, Some(config))
+            }
+            _ => (RiskClass::ProgramControlled, None),
+        },
+    }
 }
 
 pub fn parse_program_account(data: &[u8]) -> Result<Pubkey> {
@@ -364,14 +478,41 @@ mod tests {
     }
 
     #[test]
+    fn only_a_matching_trace_multisig_is_multisig_protected() {
+        let config = MultisigConfig {
+            id: Pubkey::new_unique(),
+            authority: Pubkey::new_unique(),
+            threshold: 2,
+            member_count: 3,
+            members: vec![
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+            ],
+            bump: 255,
+        };
+
+        let (risk, matched) =
+            classify_attestation(Some(config.authority), Some(&config), |_| false);
+        assert_eq!(risk, RiskClass::MultisigProtected);
+        assert!(matched.is_some());
+
+        let (risk, matched) =
+            classify_attestation(Some(Pubkey::new_unique()), Some(&config), |_| false);
+        assert_eq!(risk, RiskClass::ProgramControlled);
+        assert!(matched.is_none());
+    }
+
+    #[test]
     fn severity_orders_risk() {
         assert!(RiskClass::Immutable.severity() < RiskClass::ProgramControlled.severity());
+        assert!(RiskClass::MultisigProtected.severity() < RiskClass::ProgramControlled.severity());
         assert!(RiskClass::ProgramControlled.severity() < RiskClass::SingleKey.severity());
     }
 
     #[test]
     fn attestation_space_is_as_expected() {
-        // 32 + 32 + 33 + 1 + 8 + 8 + 8 + 32 + 4 + 1
-        assert_eq!(Attestation::INIT_SPACE, 159);
+        // 32 + 32 + 33 + 1 + 33 + 1 + 1 + 8 + 8 + 8 + 32 + 4 + 1
+        assert_eq!(Attestation::INIT_SPACE, 194);
     }
 }

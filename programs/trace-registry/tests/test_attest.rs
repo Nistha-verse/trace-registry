@@ -111,6 +111,15 @@ fn attestation_pda(target: &Pubkey) -> Pubkey {
 }
 
 fn attest_ix(payer: &Pubkey, target: &Pubkey, program_data: &Pubkey) -> Instruction {
+    attest_ix_with_config(payer, target, program_data, None)
+}
+
+fn attest_ix_with_config(
+    payer: &Pubkey,
+    target: &Pubkey,
+    program_data: &Pubkey,
+    multisig_config: Option<Pubkey>,
+) -> Instruction {
     Instruction::new_with_bytes(
         trace_registry::id(),
         &trace_registry::instruction::Attest {}.data(),
@@ -118,7 +127,36 @@ fn attest_ix(payer: &Pubkey, target: &Pubkey, program_data: &Pubkey) -> Instruct
             payer: *payer,
             target_program: *target,
             program_data: *program_data,
+            multisig_config,
             attestation: attestation_pda(target),
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn multisig_config_pda(id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"multisig", id.as_ref()], &trace_registry::id()).0
+}
+
+fn initialize_multisig_ix(
+    payer: &Pubkey,
+    id: Pubkey,
+    members: Vec<Pubkey>,
+    threshold: u8,
+) -> Instruction {
+    let config = multisig_config_pda(&id);
+    Instruction::new_with_bytes(
+        trace_registry::id(),
+        &trace_registry::instruction::InitializeMultisig {
+            id,
+            members,
+            threshold,
+        }
+        .data(),
+        trace_registry::accounts::InitializeMultisig {
+            payer: *payer,
+            config,
             system_program: system_program::ID,
         }
         .to_account_metas(None),
@@ -219,6 +257,37 @@ fn pda_authority_is_program_controlled() {
     let a = read_attestation(&env);
     assert_eq!(a.risk, RiskClass::ProgramControlled);
     assert_eq!(a.authority, Some(pda));
+}
+
+#[test]
+fn trace_multisig_authority_is_multisig_protected() {
+    let id = Pubkey::new_unique();
+    let config = multisig_config_pda(&id);
+    let authority = trace_registry::multisig_authority(&config);
+    let mut env = setup(Some(authority));
+    let mut members = vec![
+        Keypair::new().pubkey(),
+        Keypair::new().pubkey(),
+        Keypair::new().pubkey(),
+    ];
+    members.sort_by_key(|member| member.to_bytes());
+    let payer = env.payer.pubkey();
+    let target = env.target;
+    let program_data = env.program_data;
+
+    expect_ok(&send(
+        &mut env,
+        initialize_multisig_ix(&payer, id, members, 2),
+    ));
+    expect_ok(&send(
+        &mut env,
+        attest_ix_with_config(&payer, &target, &program_data, Some(config)),
+    ));
+    let attestation = read_attestation(&env);
+    assert_eq!(attestation.risk, RiskClass::MultisigProtected);
+    assert_eq!(attestation.multisig_config, Some(config));
+    assert_eq!(attestation.multisig_threshold, 2);
+    assert_eq!(attestation.multisig_member_count, 3);
 }
 
 #[test]
