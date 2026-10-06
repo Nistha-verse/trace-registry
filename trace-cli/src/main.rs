@@ -5,7 +5,7 @@ use {
         io::{Read, Write},
         net::TcpListener,
     },
-    trace_cli::{ClientError, TraceClient, DEFAULT_TRACE_PROGRAM_ID},
+    trace_cli::{append_history, ClientError, TraceClient, DEFAULT_TRACE_PROGRAM_ID},
 };
 
 fn main() {
@@ -31,6 +31,18 @@ fn run() -> Result<(), ClientError> {
             let target = positional(&args, 1)?;
             let report = client.verify(target)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        "history" => {
+            let target = positional(&args, 1)?;
+            let limit = option(&args, "--limit")
+                .unwrap_or_else(|| "100".into())
+                .parse::<usize>()
+                .map_err(|_| ClientError::Rpc("--limit must be an integer".into()))?;
+            let records = client.history(target, limit)?;
+            if let Some(path) = option(&args, "--file") {
+                append_history(path, &records)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&records)?);
         }
         "serve" => serve(
             client,
@@ -72,8 +84,16 @@ fn serve(client: TraceClient, bind: String) -> Result<(), ClientError> {
         let (status, body) = if path == "/health" {
             ("200 OK", json!({"ok": true}))
         } else if let Some(program) = path.strip_prefix("/v1/programs/") {
-            match client.verify(program) {
-                Ok(report) => ("200 OK", serde_json::to_value(report)?),
+            let (program, history) = program
+                .strip_suffix("/history")
+                .map_or((program, false), |program| (program, true));
+            let response = if history {
+                client.history(program, 100).map(|records| json!(records))
+            } else {
+                client.verify(program).map(|report| json!(report))
+            };
+            match response {
+                Ok(report) => ("200 OK", report),
                 Err(error) => ("400 Bad Request", json!({"error": error.to_string()})),
             }
         } else {
@@ -92,6 +112,6 @@ fn serve(client: TraceClient, bind: String) -> Result<(), ClientError> {
 
 fn print_help() {
     println!(
-        "Trace public verifier\n\n  trace-cli check PROGRAM [--rpc-url URL] [--trace-program ID]\n  trace-cli serve [--bind HOST:PORT] [--rpc-url URL] [--trace-program ID]\n\nEnvironment: TRACE_RPC_URL and TRACE_PROGRAM_ID"
+        "Trace public verifier\n\n  trace-cli check PROGRAM [--rpc-url URL] [--trace-program ID]\n  trace-cli history PROGRAM [--limit N] [--file PATH]\n  trace-cli serve [--bind HOST:PORT] [--rpc-url URL] [--trace-program ID]\n\nEnvironment: TRACE_RPC_URL and TRACE_PROGRAM_ID"
     );
 }
