@@ -28,6 +28,7 @@ const MAX_MULTISIG_MEMBERS: usize = 8;
 const PROGRAMDATA_TAG: u32 = 3;
 /// 4 (tag) + 8 (slot) + 1 (option flag) + 32 (authority).
 const PROGRAMDATA_METADATA_SIZE: usize = 45;
+const LOADER_V4_METADATA_SIZE: usize = 48;
 
 #[program]
 pub mod trace_registry {
@@ -38,35 +39,55 @@ pub mod trace_registry {
     /// refreshes the record, and emits `AuthorityChanged` if the authority moved.
     pub fn attest(ctx: Context<Attest>) -> Result<()> {
         let target = &ctx.accounts.target_program;
-        let program_data = &ctx.accounts.program_data;
 
-        // 1. The target must be a real upgradeable program.
+        // 1. The target must be an executable program owned by a supported loader.
         require!(target.executable, TraceError::TargetNotExecutable);
-        require_keys_eq!(
-            *target.owner,
-            bpf_loader_upgradeable::ID,
+        require!(
+            is_supported_loader(target.owner),
             TraceError::NotUpgradeable
         );
 
-        // 2. Its Program account must point at exactly the ProgramData we were given.
-        {
-            let data = target.try_borrow_data()?;
-            let linked = parse_program_account(&data)?;
-            require_keys_eq!(linked, program_data.key(), TraceError::ProgramDataMismatch);
-        }
-        require_keys_eq!(
-            *program_data.owner,
-            bpf_loader_upgradeable::ID,
-            TraceError::BadProgramDataOwner
-        );
+        let loader = classify_loader(target.owner);
+        let (program_data_key, authority, last_deploy_slot) = match loader {
+            ProgramLoader::Upgradeable => {
+                let program_data = ctx
+                    .accounts
+                    .program_data
+                    .as_ref()
+                    .ok_or(TraceError::ProgramDataRequired)?;
+                let data = target.try_borrow_data()?;
+                let linked = parse_program_account(&data)?;
+                require_keys_eq!(linked, program_data.key(), TraceError::ProgramDataMismatch);
+                require_keys_eq!(
+                    *program_data.owner,
+                    bpf_loader_upgradeable::ID,
+                    TraceError::BadProgramDataOwner
+                );
 
-        // 3. Read only the fixed header; the (possibly megabytes of) bytecode is never touched.
-        let header = {
-            let data = program_data.try_borrow_data()?;
-            parse_programdata_header(&data)?
+                // Read only the fixed header; the bytecode is never touched.
+                let data = program_data.try_borrow_data()?;
+                let header = parse_programdata_header(&data)?;
+                (Some(program_data.key()), header.authority, header.slot)
+            }
+            ProgramLoader::Legacy => {
+                require!(
+                    ctx.accounts.program_data.is_none(),
+                    TraceError::UnexpectedProgramData
+                );
+                (None, None, 0)
+            }
+            ProgramLoader::V4 => {
+                require!(
+                    ctx.accounts.program_data.is_none(),
+                    TraceError::UnexpectedProgramData
+                );
+                let data = target.try_borrow_data()?;
+                let header = parse_loader_v4_header(&data)?;
+                (None, header.authority, header.slot)
+            }
         };
         let (risk, multisig_config) = classify_attestation(
-            header.authority,
+            authority,
             ctx.accounts.multisig_config.as_deref(),
             is_on_curve,
         );
@@ -79,8 +100,8 @@ pub mod trace_registry {
         let previous_authority = att.authority;
 
         att.target_program = target.key();
-        att.program_data = program_data.key();
-        att.authority = header.authority;
+        att.program_data = program_data_key;
+        att.authority = authority;
         att.risk = risk;
         att.multisig_config = multisig_config.as_ref().and(
             ctx.accounts
@@ -90,26 +111,28 @@ pub mod trace_registry {
         );
         att.multisig_threshold = multisig_config.map_or(0, |config| config.threshold);
         att.multisig_member_count = multisig_config.map_or(0, |config| config.member_count);
-        att.last_deploy_slot = header.slot;
+        att.loader = loader;
+        att.last_deploy_slot = last_deploy_slot;
         att.attested_slot = clock.slot;
         att.attested_at = clock.unix_timestamp;
         att.attester = ctx.accounts.payer.key();
         att.refresh_count = att.refresh_count.saturating_add(1);
         att.bump = ctx.bumps.attestation;
 
-        if !is_new && previous_authority != header.authority {
+        if !is_new && previous_authority != authority {
             emit!(AuthorityChanged {
                 target_program: target.key(),
                 old_authority: previous_authority,
-                new_authority: header.authority,
+                new_authority: authority,
                 slot: clock.slot,
             });
         }
         emit!(Attested {
             target_program: target.key(),
-            authority: header.authority,
+            authority,
             risk,
             multisig_config: att.multisig_config,
+            loader,
             slot: clock.slot,
             refresh_count: att.refresh_count,
         });
@@ -153,7 +176,7 @@ pub struct Attest<'info> {
     /// CHECK: validated by hand in `attest` (executable, loader-owned, ProgramData link).
     pub target_program: UncheckedAccount<'info>,
     /// CHECK: validated by hand in `attest` (must equal the address the target links to).
-    pub program_data: UncheckedAccount<'info>,
+    pub program_data: Option<UncheckedAccount<'info>>,
     pub multisig_config: Option<Account<'info, MultisigConfig>>,
     #[account(
         init_if_needed,
@@ -181,12 +204,13 @@ pub struct AssertSafe<'info> {
 #[derive(InitSpace)]
 pub struct Attestation {
     pub target_program: Pubkey,
-    pub program_data: Pubkey,
+    pub program_data: Option<Pubkey>,
     pub authority: Option<Pubkey>,
     pub risk: RiskClass,
     pub multisig_config: Option<Pubkey>,
     pub multisig_threshold: u8,
     pub multisig_member_count: u8,
+    pub loader: ProgramLoader,
     /// Slot of the target's last deploy/upgrade, from the ProgramData header.
     pub last_deploy_slot: u64,
     pub attested_slot: u64,
@@ -203,6 +227,13 @@ pub enum RiskClass {
     MultisigProtected,
     ProgramControlled,
     SingleKey,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
+pub enum ProgramLoader {
+    Upgradeable,
+    Legacy,
+    V4,
 }
 
 impl RiskClass {
@@ -223,6 +254,7 @@ pub struct Attested {
     pub authority: Option<Pubkey>,
     pub risk: RiskClass,
     pub multisig_config: Option<Pubkey>,
+    pub loader: ProgramLoader,
     pub slot: u64,
     pub refresh_count: u32,
 }
@@ -247,6 +279,10 @@ pub enum TraceError {
     ProgramDataMismatch,
     #[msg("ProgramData account is not owned by the upgradeable BPF loader")]
     BadProgramDataOwner,
+    #[msg("Upgradeable targets require a ProgramData account")]
+    ProgramDataRequired,
+    #[msg("This loader does not use a ProgramData account")]
+    UnexpectedProgramData,
     #[msg("ProgramData header is malformed")]
     MalformedProgramData,
     #[msg("Attestation is older than the allowed age")]
@@ -268,6 +304,48 @@ pub enum TraceError {
 pub struct ProgramDataHeader {
     pub slot: u64,
     pub authority: Option<Pubkey>,
+}
+
+pub struct LoaderV4Header {
+    pub slot: u64,
+    pub authority: Option<Pubkey>,
+}
+
+pub fn classify_loader(owner: &Pubkey) -> ProgramLoader {
+    if owner.as_ref() == bpf_loader_upgradeable::ID.as_ref() {
+        ProgramLoader::Upgradeable
+    } else if owner.as_ref() == solana_sdk_ids::bpf_loader::ID.as_ref()
+        || owner.as_ref() == solana_sdk_ids::bpf_loader_deprecated::ID.as_ref()
+    {
+        ProgramLoader::Legacy
+    } else if owner.as_ref() == solana_sdk_ids::loader_v4::ID.as_ref() {
+        ProgramLoader::V4
+    } else {
+        // The caller converts this sentinel into the normal loader error before use.
+        ProgramLoader::Upgradeable
+    }
+}
+
+pub fn is_supported_loader(owner: &Pubkey) -> bool {
+    owner.as_ref() == bpf_loader_upgradeable::ID.as_ref()
+        || owner.as_ref() == solana_sdk_ids::bpf_loader::ID.as_ref()
+        || owner.as_ref() == solana_sdk_ids::bpf_loader_deprecated::ID.as_ref()
+        || owner.as_ref() == solana_sdk_ids::loader_v4::ID.as_ref()
+}
+
+pub fn parse_loader_v4_header(data: &[u8]) -> Result<LoaderV4Header> {
+    require!(
+        data.len() >= LOADER_V4_METADATA_SIZE,
+        TraceError::MalformedProgramAccount
+    );
+    let slot = u64::from_le_bytes(data[0..8].try_into().unwrap());
+    let authority = Pubkey::new_from_array(data[8..40].try_into().unwrap());
+    let status = u64::from_le_bytes(data[40..48].try_into().unwrap());
+    require!(status <= 2, TraceError::MalformedProgramAccount);
+    Ok(LoaderV4Header {
+        slot,
+        authority: (status != 2).then_some(authority),
+    })
 }
 
 #[account]
@@ -512,7 +590,7 @@ mod tests {
 
     #[test]
     fn attestation_space_is_as_expected() {
-        // 32 + 32 + 33 + 1 + 33 + 1 + 1 + 8 + 8 + 8 + 32 + 4 + 1
-        assert_eq!(Attestation::INIT_SPACE, 194);
+        // 32 + 33 + 33 + 1 + 33 + 1 + 1 + 1 + 8 + 8 + 8 + 32 + 4 + 1
+        assert_eq!(Attestation::INIT_SPACE, 196);
     }
 }

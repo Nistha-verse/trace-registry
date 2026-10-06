@@ -44,6 +44,19 @@ fn program_bytes(program_data: &Pubkey) -> Vec<u8> {
     d
 }
 
+fn loader_v4_bytes(authority: Pubkey, status: u64, slot: u64) -> Vec<u8> {
+    let program = include_bytes!(concat!(
+        env!("CARGO_TARGET_TMPDIR"),
+        "/../deploy/trace_registry.so"
+    ));
+    let mut data = vec![0u8; 48 + program.len()];
+    data[0..8].copy_from_slice(&slot.to_le_bytes());
+    data[8..40].copy_from_slice(authority.as_ref());
+    data[40..48].copy_from_slice(&status.to_le_bytes());
+    data[48..].copy_from_slice(program);
+    data
+}
+
 fn account(data: Vec<u8>, owner: Pubkey, executable: bool) -> Account {
     Account {
         lamports: 10_000_000,
@@ -111,13 +124,13 @@ fn attestation_pda(target: &Pubkey) -> Pubkey {
 }
 
 fn attest_ix(payer: &Pubkey, target: &Pubkey, program_data: &Pubkey) -> Instruction {
-    attest_ix_with_config(payer, target, program_data, None)
+    attest_ix_with_config(payer, target, Some(*program_data), None)
 }
 
 fn attest_ix_with_config(
     payer: &Pubkey,
     target: &Pubkey,
-    program_data: &Pubkey,
+    program_data: Option<Pubkey>,
     multisig_config: Option<Pubkey>,
 ) -> Instruction {
     Instruction::new_with_bytes(
@@ -126,7 +139,7 @@ fn attest_ix_with_config(
         trace_registry::accounts::Attest {
             payer: *payer,
             target_program: *target,
-            program_data: *program_data,
+            program_data,
             multisig_config,
             attestation: attestation_pda(target),
             system_program: system_program::ID,
@@ -243,7 +256,7 @@ fn bare_keypair_authority_is_single_key() {
     assert_eq!(a.risk, RiskClass::SingleKey);
     assert_eq!(a.authority, Some(key));
     assert_eq!(a.target_program, env.target);
-    assert_eq!(a.program_data, env.program_data);
+    assert_eq!(a.program_data, Some(env.program_data));
     assert_eq!(a.last_deploy_slot, 1234);
     assert_eq!(a.attester, env.payer.pubkey());
     assert_eq!(a.refresh_count, 1);
@@ -281,7 +294,7 @@ fn trace_multisig_authority_is_multisig_protected() {
     ));
     expect_ok(&send(
         &mut env,
-        attest_ix_with_config(&payer, &target, &program_data, Some(config)),
+        attest_ix_with_config(&payer, &target, Some(program_data), Some(config)),
     ));
     let attestation = read_attestation(&env);
     assert_eq!(attestation.risk, RiskClass::MultisigProtected);
@@ -368,7 +381,7 @@ fn rejects_non_executable_target() {
 }
 
 #[test]
-fn rejects_target_not_owned_by_the_upgradeable_loader() {
+fn legacy_loader_program_is_immutable() {
     let mut env = setup(None);
     let legacy_loader = Pubkey::new_from_array(solana_sdk_ids::bpf_loader::ID.to_bytes());
     env.svm
@@ -385,7 +398,39 @@ fn rejects_target_not_owned_by_the_upgradeable_loader() {
             ),
         )
         .unwrap();
-    expect_err(&attest(&mut env), "NotUpgradeable");
+    let payer = env.payer.pubkey();
+    let target = env.target;
+    expect_ok(&send(
+        &mut env,
+        attest_ix_with_config(&payer, &target, None, None),
+    ));
+    let attestation = read_attestation(&env);
+    assert_eq!(attestation.risk, RiskClass::Immutable);
+    assert_eq!(attestation.program_data, None);
+    assert_eq!(attestation.loader, trace_registry::ProgramLoader::Legacy);
+}
+
+#[test]
+fn loader_v4_finalized_program_is_immutable() {
+    let mut env = setup(None);
+    let loader_v4 = Pubkey::new_from_array(solana_sdk_ids::loader_v4::ID.to_bytes());
+    let authority = Pubkey::new_unique();
+    env.svm
+        .set_account(
+            env.target,
+            account(loader_v4_bytes(authority, 2, 4321), loader_v4, true),
+        )
+        .unwrap();
+    let payer = env.payer.pubkey();
+    let target = env.target;
+    expect_ok(&send(
+        &mut env,
+        attest_ix_with_config(&payer, &target, None, None),
+    ));
+    let attestation = read_attestation(&env);
+    assert_eq!(attestation.risk, RiskClass::Immutable);
+    assert_eq!(attestation.last_deploy_slot, 4321);
+    assert_eq!(attestation.loader, trace_registry::ProgramLoader::V4);
 }
 
 #[test]
