@@ -98,7 +98,7 @@ export function ProgramPage({ address }: ProgramPageProps) {
           <div className="eyebrow"><span className="eyebrow__rule" /> PROGRAM UNDER REVIEW</div>
           <div className="program-identity__address"><code>{address}</code><button className="copy-button" onClick={copyAddress} type="button" title="Copy program address">{copied ? <Check size={14} /> : <Copy size={14} />}</button></div>
         </div>
-        <div className="program-identity__links"><a href={`https://explorer.solana.com/address/${address}?cluster=devnet`} target="_blank" rel="noreferrer">Explorer <ExternalLink size={13} /></a><a href="#/history">History <ArrowLeft className="rotate-180" size={13} /></a></div>
+        <div className="program-identity__links"><a href={`https://explorer.solana.com/address/${address}?cluster=devnet`} target="_blank" rel="noreferrer">Explorer <ExternalLink size={13} /></a><a href={`#/program/${encodeURIComponent(address)}/dependencies`}>Dependencies <ArrowLeft className="rotate-180" size={13} /></a><a href={`#/program/${encodeURIComponent(address)}/history`}>History <ArrowLeft className="rotate-180" size={13} /></a></div>
       </section>
 
       <section className="fact-grid">
