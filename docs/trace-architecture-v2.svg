@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Trace architecture</title>
+  <desc id="desc">A target Solana program and its ProgramData feed Trace's on-chain classifier, which writes an attestation PDA. A separate scanner adds labelled inference.</desc>
+  <defs><style>
+    .bg{fill:#100202}.panel{fill:#650b0b;stroke:#d0171d;stroke-width:2}.light{fill:#f1e9e4}.muted{fill:#c7aaa2}.red{fill:#d0171d}.line{stroke:#f1e9e4;stroke-width:2;fill:none;marker-end:url(#arrow)}.dash{stroke:#d0171d;stroke-width:2;stroke-dasharray:8 8;fill:none;marker-end:url(#arrow)}.k{font:600 15px ui-monospace,monospace;letter-spacing:2px}.b{font:600 23px ui-sans-serif,system-ui}.s{font:14px ui-sans-serif,system-ui}.tiny{font:12px ui-monospace,monospace}
+  </style><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f1e9e4"/></marker></defs>
+  <rect class="bg" width="1200" height="560" rx="20"/>
+  <text x="64" y="64" class="k red">TRACE / ARCHITECTURE V2</text><text x="64" y="102" class="b light">Facts from the chain. Inference off to the side.</text>
+  <rect class="panel" x="64" y="170" width="240" height="142" rx="10"/><text x="88" y="207" class="k light">TARGET PROGRAM</text><text x="88" y="246" class="b light">Program</text><text x="88" y="276" class="s muted">loader-owned · tag 2</text><text x="88" y="298" class="tiny muted">links to ProgramData</text>
+  <rect class="panel" x="64" y="350" width="240" height="142" rx="10"/><text x="88" y="387" class="k light">TARGET STATE</text><text x="88" y="426" class="b light">ProgramData</text><text x="88" y="456" class="s muted">fixed 45-byte header</text><text x="88" y="478" class="tiny muted">slot · option · authority</text>
+  <path class="line" d="M304 241 H405"/><path class="line" d="M304 421 H405"/>
+  <rect class="panel" x="405" y="210" width="300" height="202" rx="10"/><text x="433" y="250" class="k light">TRACE PROGRAM</text><text x="433" y="291" class="b light">attest</text><text x="433" y="324" class="s muted">validates loader + link</text><text x="433" y="348" class="s muted">curve syscall, id 0</text><text x="433" y="372" class="s muted">recomputes one class</text><text x="433" y="396" class="tiny red">permissionless · same tx</text>
+  <path class="line" d="M705 310 H810"/>
+  <rect class="panel" x="810" y="170" width="290" height="142" rx="10"/><text x="838" y="207" class="k light">PUBLIC STATE</text><text x="838" y="246" class="b light">Attestation PDA</text><text x="838" y="276" class="s muted">authority · deploy slot</text><text x="838" y="298" class="tiny muted">events · freshness</text>
+  <rect class="panel" x="810" y="350" width="290" height="142" rx="10"/><text x="838" y="387" class="k light">CONSUMERS</text><text x="838" y="426" class="b light">assert_safe</text><text x="838" y="456" class="s muted">risk + age gate</text><text x="838" y="478" class="tiny muted">read or CPI</text>
+  <path class="line" d="M955 312 V350"/>
+  <rect x="405" y="454" width="300" height="48" rx="24" fill="#100202" stroke="#d0171d" stroke-width="1"/><text x="555" y="484" text-anchor="middle" class="tiny red">Immutable · ProgramControlled · SingleKey</text>
+  <rect x="64" y="524" width="1036" height="1" fill="#f1e9e4" opacity=".2"/>
+  <path class="dash" d="M1125 240 H1160 V420 H1100"/><text x="1120" y="218" text-anchor="end" class="k red">SCANNER</text><text x="1120" y="240" text-anchor="end" class="tiny muted">read-only inference</text>
+</svg>

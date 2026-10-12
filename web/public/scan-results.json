@@ -1,0 +1,42 @@
+[
+  {
+    "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "programData": "3gvYRKWyXRR9xKWe1ZjPhLY5ZJRN7KDB4rFZFGoJfFk2",
+    "authority": null,
+    "risk": "Immutable",
+    "lastDeploySlot": "419472000",
+    "attested": false,
+    "attestedSlot": null,
+    "inference": { "controllerGuess": null, "references": [], "referenceBasis": "static bytecode address search" }
+  },
+  {
+    "programId": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "programData": "DoU57AYuPFu2QU514RktNPG22QhApEjnKxnBcu4BHDTY",
+    "authority": "AeLmXCbPaQHGWRLr2saFsEVfmMNuKnxRAbWCT9P5twgz",
+    "risk": "ProgramControlled",
+    "lastDeploySlot": "427147035",
+    "attested": false,
+    "attestedSlot": null,
+    "inference": { "controllerGuess": null, "references": [], "referenceBasis": "static bytecode address search" }
+  },
+  {
+    "programId": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+    "programData": "4Ec7ZxZS6Sbdg5UGSLHbAnM7GQHp2eFd4KYWRexAipQT",
+    "authority": "CvQZZ23qYDWF2RUpxYJ8y9K4skmuvYEEjH7fK58jtipQ",
+    "risk": "ProgramControlled",
+    "lastDeploySlot": "454465850",
+    "attested": false,
+    "attestedSlot": null,
+    "inference": { "controllerGuess": null, "references": [], "referenceBasis": "static bytecode address search" }
+  },
+  {
+    "programId": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+    "programData": "A7ZG7ByDi8DpzT9Ab7CiXhvgYTJQmaDPJkMDoPitaCQV",
+    "authority": "FytDrVzDybM1TwFQPGb8qaxZR7dBCzNeqT3vtQsceZQK",
+    "risk": "ProgramControlled",
+    "lastDeploySlot": "445763204",
+    "attested": false,
+    "attestedSlot": null,
+    "inference": { "controllerGuess": null, "references": [], "referenceBasis": "static bytecode address search" }
+  }
+]

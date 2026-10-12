@@ -1,5 +1,8 @@
 skip_local_validator = true
 
+[workspace]
+members = ["program"]
+
 [toolchain]
 
 [features]
@@ -20,6 +23,6 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "anchor build --arch v2 && cargo test"
+test = "cargo test -p trace-registry"
 
 [hooks]

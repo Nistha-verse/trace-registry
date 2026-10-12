@@ -15,3 +15,14 @@ trace-registry-update.zip
 
 frontend/node_modules/
 frontend/dist/
+dist/
+.env
+.env.*
+!.env.example
+scan-results.json
+scanner/scan-results.json
+!web/public/scan-results.json
+*-keypair.json
+.trace/
+.superdesign/
+*.tsbuildinfo

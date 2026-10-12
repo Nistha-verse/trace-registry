@@ -1,8 +1,5 @@
 [workspace]
-members = [
-    "programs/*",
-    "trace-cli"
-]
+members = ["program"]
 resolver = "2"
 
 [workspace.package]
